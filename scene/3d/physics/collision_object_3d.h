@@ -47,6 +47,38 @@ public:
 		DISABLE_MODE_KEEP_ACTIVE,
 	};
 
+	enum DamageTypes {
+		DAMAGE_TYPE_GENERIC = 1 << 0,
+		DAMAGE_TYPE_RADIAL = 1 << 1,
+	};
+
+	enum RadialFalloffType {
+		FALLOFF_LINEAR,
+		FALLOFF_QUADRATIC,
+		FALLOFF_EXPONENTIAL,
+		FALLOFF_INVERSE_SQUARE,
+		FALLOFF_STEP,
+		FALLOFF_CURVED,
+	};
+
+	struct DamageEvent {
+		float damage_amount = 0.0f;
+		int damage_types = DAMAGE_TYPE_GENERIC;
+		ObjectID instigator;
+		ObjectID damage_causer;
+		Vector3 hit_location;
+		Vector3 hit_normal;
+		int shape_index = -1;
+		float knockback_strength = 0.0f;
+		Vector3 knockback_direction;
+		Variant metadata;
+
+		DamageEvent() = default;
+		DamageEvent(float p_damage_amount, int p_damage_types) :
+				damage_amount(p_damage_amount),
+				damage_types(p_damage_types) {}
+	};
+
 private:
 	uint32_t collision_layer = 1;
 	uint32_t collision_mask = 1;
@@ -56,6 +88,8 @@ private:
 
 	RID rid;
 	uint32_t callback_lock = 0;
+	int damage_immunity_flags = 0;
+	RBMap<int, float> damage_multipliers;
 
 	DisableMode disable_mode = DISABLE_MODE_REMOVE;
 
@@ -94,6 +128,9 @@ private:
 	void _shape_changed(const Ref<Shape3D> &p_shape);
 	void _update_debug_shapes();
 	void _clear_debug_shapes();
+	Dictionary _damage_event_to_dict(const DamageEvent &p_event) const;
+	DamageEvent _dict_to_damage_event(const Dictionary &p_dict) const;
+	float _calculate_radial_falloff(float p_distance, float p_radius, RadialFalloffType p_falloff_type, float p_falloff_curve) const;
 
 	void _apply_disabled();
 	void _apply_enabled();
@@ -116,6 +153,10 @@ protected:
 	virtual void _input_event_call(Camera3D *p_camera, const Ref<InputEvent> &p_input_event, const Vector3 &p_pos, const Vector3 &p_normal, int p_shape);
 	virtual void _mouse_enter();
 	virtual void _mouse_exit();
+	float _handle_damage(const DamageEvent &p_damage_event);
+	GDVIRTUAL1RC(float, _handle_damage, Dictionary)
+	void _handle_knockback(const Vector3 &p_direction, float p_strength);
+	GDVIRTUAL2(_handle_knockback, Vector3, float)
 
 	void set_body_mode(PhysicsServer3D::BodyMode p_mode);
 
@@ -145,6 +186,18 @@ public:
 
 	void set_disable_mode(DisableMode p_mode);
 	DisableMode get_disable_mode() const;
+
+	float apply_damage(const DamageEvent &p_damage_event);
+	float apply_damage(float p_damage, int p_damage_types, Object *p_instigator, Object *p_damage_causer);
+	bool can_receive_damage(int p_damage_types = -1) const;
+	void set_damage_immunity(int p_damage_types, bool p_immune);
+	bool has_damage_immunity(int p_damage_types) const;
+	float get_damage_multiplier(int p_damage_types) const;
+	void set_damage_multiplier(int p_damage_types, float p_multiplier);
+	float apply_damage_to(CollisionObject3D *p_target, float p_damage, int p_damage_types = DAMAGE_TYPE_GENERIC, Object *p_instigator = nullptr, Object *p_damage_causer = nullptr);
+	float apply_radial_damage(const Vector3 &p_center, float p_radius, float p_damage, int p_damage_types = DAMAGE_TYPE_GENERIC, bool p_falloff = true, RadialFalloffType p_falloff_type = FALLOFF_LINEAR, float p_falloff_curve = 1.0f, Object *p_instigator = nullptr, Object *p_damage_causer = nullptr);
+	float apply_knockback(const Vector3 &p_direction, float p_strength);
+	Dictionary create_damage_event(float p_damage, int p_damage_types, Object *p_instigator, Object *p_damage_causer, const Vector3 &p_hit_location = Vector3(), const Vector3 &p_hit_normal = Vector3());
 
 	uint32_t create_shape_owner(Object *p_owner);
 	void remove_shape_owner(uint32_t owner);
@@ -183,3 +236,5 @@ public:
 };
 
 VARIANT_ENUM_CAST(CollisionObject3D::DisableMode);
+VARIANT_ENUM_CAST(CollisionObject3D::DamageTypes);
+VARIANT_ENUM_CAST(CollisionObject3D::RadialFalloffType);
