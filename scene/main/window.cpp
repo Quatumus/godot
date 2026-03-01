@@ -30,12 +30,17 @@
 
 #include "window.h"
 
+STATIC_ASSERT_INCOMPLETE_TYPE(class, RenderingServer);
+
 #include "core/config/project_settings.h"
 #include "core/debugger/engine_debugger.h"
 #include "core/input/input.h"
+#include "core/object/class_db.h"
 #include "scene/gui/control.h"
 #include "scene/theme/theme_db.h"
 #include "scene/theme/theme_owner.h"
+#include "servers/rendering/rendering_server.h"
+#include "servers/rendering/rendering_server_enums.h"
 
 // Editor integration.
 
@@ -720,6 +725,7 @@ void Window::_make_window() {
 	DisplayServer::get_singleton()->window_set_title(displayed_title, window_id);
 	DisplayServer::get_singleton()->window_attach_instance_id(get_instance_id(), window_id);
 	DisplayServer::get_singleton()->window_request_hdr_output(hdr_output_requested, window_id);
+	DisplayServer::get_singleton()->accessibility_set_window_callbacks(window_id, callable_mp(this, &Window::_accessibility_activate), callable_mp(this, &Window::_accessibility_deactivate));
 
 	_update_window_size();
 
@@ -733,7 +739,7 @@ void Window::_make_window() {
 
 	_update_window_callbacks();
 
-	RS::get_singleton()->viewport_set_update_mode(get_viewport_rid(), RS::VIEWPORT_UPDATE_WHEN_VISIBLE);
+	RS::get_singleton()->viewport_set_update_mode(get_viewport_rid(), RSE::VIEWPORT_UPDATE_WHEN_VISIBLE);
 	DisplayServer::get_singleton()->show_window(window_id);
 }
 
@@ -780,7 +786,7 @@ void Window::_clear_window() {
 	}
 
 	_update_viewport_size();
-	RS::get_singleton()->viewport_set_update_mode(get_viewport_rid(), RS::VIEWPORT_UPDATE_DISABLED);
+	RS::get_singleton()->viewport_set_update_mode(get_viewport_rid(), RSE::VIEWPORT_UPDATE_DISABLED);
 
 	if (transient && transient_to_focused) {
 		_clear_transient();
@@ -943,6 +949,16 @@ void Window::hide() {
 	set_visible(false);
 }
 
+void Window::_accessibility_activate() {
+	_accessibility_notify_enter(this);
+	DisplayServer::get_singleton()->accessibility_window_activation_completed(get_window_id());
+}
+
+void Window::_accessibility_deactivate() {
+	_accessibility_notify_exit(this);
+	DisplayServer::get_singleton()->accessibility_window_deactivation_completed(get_window_id());
+}
+
 void Window::_accessibility_notify_enter(Node *p_node) {
 	p_node->queue_accessibility_update();
 
@@ -1012,7 +1028,7 @@ void Window::set_visible(bool p_visible) {
 				}
 			}
 			embedder->_sub_window_register(this);
-			RS::get_singleton()->viewport_set_update_mode(get_viewport_rid(), RS::VIEWPORT_UPDATE_WHEN_PARENT_VISIBLE);
+			RS::get_singleton()->viewport_set_update_mode(get_viewport_rid(), RSE::VIEWPORT_UPDATE_WHEN_PARENT_VISIBLE);
 
 			// Make sure the sub-window shares the HDR output settings of the embedder.
 			Window *containing_window = embedder->get_window();
@@ -1023,7 +1039,7 @@ void Window::set_visible(bool p_visible) {
 		} else {
 			embedder->_sub_window_remove(this);
 			embedder = nullptr;
-			RS::get_singleton()->viewport_set_update_mode(get_viewport_rid(), RS::VIEWPORT_UPDATE_DISABLED);
+			RS::get_singleton()->viewport_set_update_mode(get_viewport_rid(), RSE::VIEWPORT_UPDATE_DISABLED);
 		}
 		_update_window_size();
 	}
@@ -1032,10 +1048,12 @@ void Window::set_visible(bool p_visible) {
 		if (get_tree() && get_tree()->is_accessibility_supported()) {
 			get_tree()->_accessibility_force_update();
 			_accessibility_notify_enter(this);
+			DisplayServer::get_singleton()->accessibility_window_activation_completed(get_window_id());
 		}
 	} else {
 		if (get_tree() && get_tree()->is_accessibility_supported()) {
 			_accessibility_notify_exit(this);
+			DisplayServer::get_singleton()->accessibility_window_deactivation_completed(get_window_id());
 		}
 		focused = false;
 		if (focused_window == this) {
@@ -1266,6 +1284,13 @@ void Window::_update_window_size() {
 void Window::_update_viewport_size() {
 	//update the viewport part
 
+#ifndef XR_DISABLED
+	// If `use_xr` set, we should skip this logic.
+	if (is_using_xr()) {
+		return;
+	}
+#endif // XR_DISABLED
+
 	Size2i final_size;
 	Size2 final_size_override;
 	Rect2i attach_to_screen_rect(Point2i(), size);
@@ -1383,7 +1408,7 @@ void Window::_update_viewport_size() {
 	}
 
 	bool allocate = is_inside_tree() && visible && (window_id != DisplayServer::INVALID_WINDOW_ID || embedder != nullptr);
-	_set_size(final_size, final_size_override, allocate);
+	_set_size(final_size, 1, final_size_override, allocate);
 
 	if (window_id != DisplayServer::INVALID_WINDOW_ID) {
 		RenderingServer::get_singleton()->viewport_attach_to_screen(get_viewport_rid(), attach_to_screen_rect, window_id);
@@ -1398,7 +1423,7 @@ void Window::_update_viewport_size() {
 		Viewport::set_oversampling_override(scale);
 		Size2 s = Size2(final_size.width * scale, final_size.height * scale).ceil();
 		RS::get_singleton()->viewport_set_global_canvas_transform(get_viewport_rid(), global_canvas_transform * scale * content_scale_factor);
-		RS::get_singleton()->viewport_set_size(get_viewport_rid(), s.width, s.height);
+		RS::get_singleton()->viewport_set_size(get_viewport_rid(), s.width, s.height, 1);
 		embedder->_sub_window_update(this);
 	}
 }
@@ -1479,8 +1504,14 @@ void Window::_notification(int p_what) {
 	ERR_MAIN_THREAD_GUARD;
 	switch (p_what) {
 		case NOTIFICATION_ACCESSIBILITY_INVALIDATE: {
-			accessibility_title_element = RID();
-			accessibility_announcement_element = RID();
+			if (accessibility_title_element.is_valid()) {
+				DisplayServer::get_singleton()->accessibility_free_element(accessibility_title_element);
+				accessibility_title_element = RID();
+			}
+			if (accessibility_announcement_element.is_valid()) {
+				DisplayServer::get_singleton()->accessibility_free_element(accessibility_announcement_element);
+				accessibility_announcement_element = RID();
+			}
 		} break;
 
 		case NOTIFICATION_ACCESSIBILITY_UPDATE: {
@@ -1589,7 +1620,7 @@ void Window::_notification(int p_what) {
 						}
 					}
 					embedder->_sub_window_register(this);
-					RS::get_singleton()->viewport_set_update_mode(get_viewport_rid(), RS::VIEWPORT_UPDATE_WHEN_PARENT_VISIBLE);
+					RS::get_singleton()->viewport_set_update_mode(get_viewport_rid(), RSE::VIEWPORT_UPDATE_WHEN_PARENT_VISIBLE);
 					_update_window_size();
 				}
 
@@ -1600,6 +1631,7 @@ void Window::_notification(int p_what) {
 					window_id = DisplayServer::MAIN_WINDOW_ID;
 					focused_window = this;
 					DisplayServer::get_singleton()->window_attach_instance_id(get_instance_id(), window_id);
+					DisplayServer::get_singleton()->accessibility_set_window_callbacks(window_id, callable_mp(this, &Window::_accessibility_activate), callable_mp(this, &Window::_accessibility_deactivate));
 					_update_from_window();
 					// Since this window already exists (created on start), we must update pos and size from it.
 					{
@@ -1619,7 +1651,7 @@ void Window::_notification(int p_what) {
 					if (!mouse_in_window && Rect2(position, size).has_point(DisplayServer::get_singleton()->mouse_get_position())) {
 						_event_callback(DisplayServer::WINDOW_EVENT_MOUSE_ENTER);
 					}
-					RS::get_singleton()->viewport_set_update_mode(get_viewport_rid(), RS::VIEWPORT_UPDATE_WHEN_VISIBLE);
+					RS::get_singleton()->viewport_set_update_mode(get_viewport_rid(), RSE::VIEWPORT_UPDATE_WHEN_VISIBLE);
 					if (DisplayServer::get_singleton()->window_get_flag(DisplayServer::WindowFlags(FLAG_TRANSPARENT), window_id)) {
 						set_transparent_background(true);
 					}
@@ -1638,6 +1670,7 @@ void Window::_notification(int p_what) {
 				if (window_id != DisplayServer::MAIN_WINDOW_ID && get_tree() && get_tree()->is_accessibility_supported()) {
 					get_tree()->_accessibility_force_update();
 					_accessibility_notify_enter(this);
+					DisplayServer::get_singleton()->accessibility_window_activation_completed(get_window_id());
 				}
 				notification(NOTIFICATION_VISIBILITY_CHANGED);
 				emit_signal(SceneStringName(visibility_changed));
@@ -1692,6 +1725,7 @@ void Window::_notification(int p_what) {
 			if (visible && window_id != DisplayServer::MAIN_WINDOW_ID) {
 				if (get_tree() && get_tree()->is_accessibility_supported()) {
 					_accessibility_notify_exit(this);
+					DisplayServer::get_singleton()->accessibility_window_deactivation_completed(get_window_id());
 					if (get_parent()) {
 						get_parent()->queue_accessibility_update();
 					}
@@ -1710,7 +1744,7 @@ void Window::_notification(int p_what) {
 
 			if (!is_embedded() && window_id != DisplayServer::INVALID_WINDOW_ID) {
 				if (window_id == DisplayServer::MAIN_WINDOW_ID) {
-					RS::get_singleton()->viewport_set_update_mode(get_viewport_rid(), RS::VIEWPORT_UPDATE_DISABLED);
+					RS::get_singleton()->viewport_set_update_mode(get_viewport_rid(), RSE::VIEWPORT_UPDATE_DISABLED);
 					_update_window_callbacks();
 				} else {
 					_clear_window();
@@ -1719,7 +1753,7 @@ void Window::_notification(int p_what) {
 				if (embedder) {
 					embedder->_sub_window_remove(this);
 					embedder = nullptr;
-					RS::get_singleton()->viewport_set_update_mode(get_viewport_rid(), RS::VIEWPORT_UPDATE_DISABLED);
+					RS::get_singleton()->viewport_set_update_mode(get_viewport_rid(), RSE::VIEWPORT_UPDATE_DISABLED);
 				}
 				_update_viewport_size(); //called by clear and make, which does not happen here
 			}
@@ -3620,7 +3654,7 @@ Window::Window() {
 	}
 
 	theme_owner = memnew(ThemeOwner(this));
-	RS::get_singleton()->viewport_set_update_mode(get_viewport_rid(), RS::VIEWPORT_UPDATE_DISABLED);
+	RS::get_singleton()->viewport_set_update_mode(get_viewport_rid(), RSE::VIEWPORT_UPDATE_DISABLED);
 }
 
 Window::~Window() {

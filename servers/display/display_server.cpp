@@ -37,6 +37,7 @@ STATIC_ASSERT_INCOMPLETE_TYPE(class, Texture2D);
 STATIC_ASSERT_INCOMPLETE_TYPE(class, RenderingServer);
 
 #include "core/input/input.h"
+#include "core/object/class_db.h"
 #include "scene/resources/texture.h"
 #include "servers/display/display_server_headless.h"
 #include "servers/display/native_menu.h"
@@ -723,6 +724,24 @@ void DisplayServer::accessibility_set_window_rect(DisplayServer::WindowID p_wind
 void DisplayServer::accessibility_set_window_focused(DisplayServer::WindowID p_window_id, bool p_focused) {
 	if (accessibility_driver) {
 		accessibility_driver->accessibility_set_window_focused(p_window_id, p_focused);
+	}
+}
+
+void DisplayServer::accessibility_set_window_callbacks(DisplayServer::WindowID p_window_id, const Callable &p_activate_callable, const Callable &p_deativate_callable) {
+	if (accessibility_driver) {
+		accessibility_driver->accessibility_set_window_callbacks(p_window_id, p_activate_callable, p_deativate_callable);
+	}
+}
+
+void DisplayServer::accessibility_window_activation_completed(DisplayServer::WindowID p_window_id) {
+	if (accessibility_driver) {
+		accessibility_driver->accessibility_window_activation_completed(p_window_id);
+	}
+}
+
+void DisplayServer::accessibility_window_deactivation_completed(DisplayServer::WindowID p_window_id) {
+	if (accessibility_driver) {
+		accessibility_driver->accessibility_window_deactivation_completed(p_window_id);
 	}
 }
 
