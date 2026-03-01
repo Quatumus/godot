@@ -518,13 +518,10 @@ void CollisionObject3D::_bind_methods() {
 	GDVIRTUAL_BIND(_mouse_enter);
 	GDVIRTUAL_BIND(_mouse_exit);
 	GDVIRTUAL_BIND(_handle_damage, "damage_event");
-	GDVIRTUAL_BIND(_on_damage_received, "damage_event", "actual_damage");
-	GDVIRTUAL_BIND(_on_damage_dealt, "damage_event", "actual_damage");
 
 	ADD_SIGNAL(MethodInfo("input_event", PropertyInfo(Variant::OBJECT, "camera", PROPERTY_HINT_RESOURCE_TYPE, Node::get_class_static()), PropertyInfo(Variant::OBJECT, "event", PROPERTY_HINT_RESOURCE_TYPE, "InputEvent"), PropertyInfo(Variant::VECTOR3, "event_position"), PropertyInfo(Variant::VECTOR3, "normal"), PropertyInfo(Variant::INT, "shape_idx")));
 	ADD_SIGNAL(MethodInfo("mouse_entered"));
 	ADD_SIGNAL(MethodInfo("mouse_exited"));
-	ADD_SIGNAL(MethodInfo("recieve_damage", PropertyInfo(Variant::FLOAT, "damage")));
 	ADD_SIGNAL(MethodInfo("damage_received", PropertyInfo(Variant::DICTIONARY, "damage_event"), PropertyInfo(Variant::FLOAT, "actual_damage")));
 	ADD_SIGNAL(MethodInfo("damage_dealt", PropertyInfo(Variant::DICTIONARY, "damage_event"), PropertyInfo(Variant::FLOAT, "actual_damage")));
 	ADD_SIGNAL(MethodInfo("damage_applied", PropertyInfo(Variant::OBJECT, "target"), PropertyInfo(Variant::DICTIONARY, "damage_event"), PropertyInfo(Variant::FLOAT, "actual_damage")));
@@ -863,10 +860,6 @@ float CollisionObject3D::apply_damage(const DamageEvent &p_damage_event) {
 
 	// Emit signals
 	emit_signal("damage_received", event_dict, processed_damage);
-	emit_signal("recieve_damage", processed_damage); // Keep old signal for compatibility
-
-	// Call virtual method
-	_on_damage_received(p_damage_event, processed_damage);
 
 	return processed_damage;
 }
@@ -920,14 +913,6 @@ float CollisionObject3D::_handle_damage(const DamageEvent &p_damage_event) {
 	return p_damage_event.damage_amount;
 }
 
-void CollisionObject3D::_on_damage_received(const DamageEvent &p_damage_event, float p_actual_damage) {
-	// Default implementation does nothing, override in subclasses
-}
-
-void CollisionObject3D::_on_damage_dealt(const DamageEvent &p_damage_event, float p_actual_damage) {
-	// Default implementation does nothing, override in subclasses
-}
-
 // Helper methods implementation
 
 float CollisionObject3D::deal_damage_to(CollisionObject3D *p_target, float p_damage, int p_damage_types) {
@@ -939,8 +924,7 @@ float CollisionObject3D::deal_damage_to(CollisionObject3D *p_target, float p_dam
 	DamageEvent event = _dict_to_damage_event(event_dict);
 	float actual_damage = p_target->apply_damage(event);
 
-	// Notify the dealer
-	_on_damage_dealt(event, actual_damage);
+	// Emit signals
 	event_dict = _damage_event_to_dict(event);
 	emit_signal("damage_dealt", event_dict, actual_damage);
 	emit_signal("damage_applied", p_target, event_dict, actual_damage);

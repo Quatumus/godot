@@ -293,22 +293,6 @@
 				Return the processed damage amount, or modify the damage_event dictionary to change the damage.
 			</description>
 		</method>
-		<method name="_on_damage_received" qualifiers="virtual">
-			<return type="void" />
-			<param index="0" name="damage_event" type="Dictionary" />
-			<param index="1" name="actual_damage" type="float" />
-			<description>
-				Virtual method called when this object receives damage. Override to implement custom damage response logic.
-			</description>
-		</method>
-		<method name="_on_damage_dealt" qualifiers="virtual">
-			<return type="void" />
-			<param index="0" name="damage_event" type="Dictionary" />
-			<param index="1" name="actual_damage" type="float" />
-			<description>
-				Virtual method called when this object deals damage to another object. Override to implement custom damage dealing logic.
-			</description>
-		</method>
 	</methods>
 	<members>
 		<member name="collision_layer" type="int" setter="set_collision_layer" getter="get_collision_layer" default="1">
@@ -376,12 +360,6 @@
 			<param index="2" name="actual_damage" type="float" />
 			<description>
 				Emitted when damage is applied to a target. [param target] is the object that received damage, [param damage_event] contains detailed damage information, [param actual_damage] is the damage dealt.
-			</description>
-		</signal>
-		<signal name="recieve_damage">
-			<param index="0" name="damage" type="float" />
-			<description>
-				[b]Legacy signal[/b] for backward compatibility. Emitted when damage is received. Use [signal damage_received] for new code.
 			</description>
 		</signal>
 	</signals>

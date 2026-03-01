@@ -174,8 +174,7 @@ protected:
 
 	// Virtual damage methods
 	virtual float _handle_damage(const DamageEvent &p_damage_event);
-	virtual void _on_damage_received(const DamageEvent &p_damage_event, float p_actual_damage);
-	virtual void _on_damage_dealt(const DamageEvent &p_damage_event, float p_actual_damage);
+	// Note: _on_damage_received and _on_damage_dealt are now signals instead of virtual methods
 
 	void set_only_update_transform_changes(bool p_enable);
 	bool is_only_update_transform_changes_enabled() const;
@@ -184,8 +183,6 @@ protected:
 	GDVIRTUAL0(_mouse_enter)
 	GDVIRTUAL0(_mouse_exit)
 	GDVIRTUAL1(_handle_damage, Dictionary)
-	GDVIRTUAL2(_on_damage_received, Dictionary, float)
-	GDVIRTUAL2(_on_damage_dealt, Dictionary, float)
 public:
 	void set_collision_layer(uint32_t p_layer);
 	uint32_t get_collision_layer() const;
