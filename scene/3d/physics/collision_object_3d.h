@@ -31,15 +31,57 @@
 #pragma once
 
 #include "core/templates/rb_map.h"
+#include "core/variant/dictionary.h"
 #include "scene/3d/camera_3d.h"
 #include "scene/3d/node_3d.h"
 #include "scene/resources/3d/shape_3d.h"
+#include "scene/resources/3d/sphere_shape_3d.h"
+#include "servers/physics_3d/physics_server_3d.h"
 
 class CollisionObject3D : public Node3D {
 	GDCLASS(CollisionObject3D, Node3D);
 
 public:
 	static constexpr AncestralClass static_ancestral_class = AncestralClass::COLLISION_OBJECT_3D;
+
+	enum DamageType {
+		DAMAGE_TYPE_GENERIC = 0,
+		DAMAGE_TYPE_PHYSICAL = 1 << 0,
+		DAMAGE_TYPE_FIRE = 1 << 1,
+		DAMAGE_TYPE_ELECTRIC = 1 << 2,
+		DAMAGE_TYPE_POISON = 1 << 3,
+		DAMAGE_TYPE_EXPLOSIVE = 1 << 4,
+		DAMAGE_TYPE_MELEE = 1 << 5,
+		DAMAGE_TYPE_RANGED = 1 << 6,
+		DAMAGE_TYPE_MAGIC = 1 << 7,
+		DAMAGE_TYPE_RADIAL = 1 << 8,
+		DAMAGE_TYPE_ENVIRONMENTAL = 1 << 9,
+	};
+
+	enum RadialFalloffType {
+		FALLOFF_LINEAR = 0,
+		FALLOFF_QUADRATIC = 1,
+		FALLOFF_EXPONENTIAL = 2,
+		FALLOFF_INVERSE_SQUARE = 3,
+		FALLOFF_STEP = 4,
+		FALLOFF_CURVED = 5,
+	};
+
+	struct DamageEvent {
+		float damage_amount = 0.0f;
+		int damage_types = DAMAGE_TYPE_GENERIC;
+		ObjectID instigator;
+		ObjectID damage_causer;
+		Vector3 hit_location;
+		Vector3 hit_normal;
+		int shape_index = -1;
+		float knockback_strength = 0.0f;
+		Vector3 knockback_direction;
+		Dictionary metadata;
+
+		DamageEvent() {}
+		DamageEvent(float p_amount, int p_types = DAMAGE_TYPE_GENERIC) : damage_amount(p_amount), damage_types(p_types) {}
+	};
 
 	enum DisableMode {
 		DISABLE_MODE_REMOVE,
@@ -87,6 +129,15 @@ private:
 	int debug_shapes_count = 0;
 	Transform3D debug_shape_old_transform;
 
+	// Damage system private members
+	int damage_immunity_flags = 0;
+	HashMap<int, float> damage_multipliers;
+
+	// Damage system helper methods
+	Dictionary _damage_event_to_dict(const DamageEvent &p_event) const;
+	DamageEvent _dict_to_damage_event(const Dictionary &p_dict) const;
+	float _calculate_radial_falloff(float p_distance, float p_radius, RadialFalloffType p_falloff_type, float p_falloff_curve) const;
+
 	void _update_pickable();
 
 	bool _are_collision_shapes_visible();
@@ -121,12 +172,20 @@ protected:
 
 	virtual void _space_changed(const RID &p_new_space);
 
+	// Virtual damage methods
+	virtual float _handle_damage(const DamageEvent &p_damage_event);
+	virtual void _on_damage_received(const DamageEvent &p_damage_event, float p_actual_damage);
+	virtual void _on_damage_dealt(const DamageEvent &p_damage_event, float p_actual_damage);
+
 	void set_only_update_transform_changes(bool p_enable);
 	bool is_only_update_transform_changes_enabled() const;
 
 	GDVIRTUAL5(_input_event, RequiredParam<Camera3D>, RequiredParam<InputEvent>, Vector3, Vector3, int)
 	GDVIRTUAL0(_mouse_enter)
 	GDVIRTUAL0(_mouse_exit)
+	GDVIRTUAL1(_handle_damage, Dictionary)
+	GDVIRTUAL2(_on_damage_received, Dictionary, float)
+	GDVIRTUAL2(_on_damage_dealt, Dictionary, float)
 public:
 	void set_collision_layer(uint32_t p_layer);
 	uint32_t get_collision_layer() const;
@@ -174,6 +233,21 @@ public:
 	void set_capture_input_on_drag(bool p_capture);
 	bool get_capture_input_on_drag() const;
 
+	// Damage system methods
+	float apply_damage(const DamageEvent &p_damage_event);
+	float apply_damage(float p_damage, int p_damage_types = DAMAGE_TYPE_GENERIC, Object *p_instigator = nullptr, Object *p_damage_causer = nullptr);
+	bool can_receive_damage(int p_damage_types = -1) const;
+	void set_damage_immunity(int p_damage_types, bool p_immune);
+	bool has_damage_immunity(int p_damage_types) const;
+	float get_damage_multiplier(int p_damage_types) const;
+	void set_damage_multiplier(int p_damage_types, float p_multiplier);
+
+	// Helper methods for common damage scenarios
+	float deal_damage_to(CollisionObject3D *p_target, float p_damage, int p_damage_types = DAMAGE_TYPE_GENERIC);
+	float deal_radial_damage(const Vector3 &p_center, float p_radius, float p_damage, int p_damage_types = DAMAGE_TYPE_GENERIC, bool p_falloff = true, RadialFalloffType p_falloff_type = FALLOFF_LINEAR, float p_falloff_curve = 1.0f);
+	float apply_knockback(const Vector3 &p_direction, float p_strength);
+	Dictionary create_damage_event(float p_damage, int p_damage_types = DAMAGE_TYPE_GENERIC, Object *p_instigator = nullptr, Object *p_damage_causer = nullptr, const Vector3 &p_hit_location = Vector3(), const Vector3 &p_hit_normal = Vector3());
+
 	_FORCE_INLINE_ RID get_rid() const { return rid; }
 
 	PackedStringArray get_configuration_warnings() const override;
@@ -183,3 +257,5 @@ public:
 };
 
 VARIANT_ENUM_CAST(CollisionObject3D::DisableMode);
+VARIANT_ENUM_CAST(CollisionObject3D::DamageType);
+VARIANT_ENUM_CAST(CollisionObject3D::RadialFalloffType);

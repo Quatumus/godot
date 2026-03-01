@@ -5,6 +5,9 @@
 	</brief_description>
 	<description>
 		Abstract base class for 3D physics objects. [CollisionObject3D] can hold any number of [Shape3D]s for collision. Each shape must be assigned to a [i]shape owner[/i]. Shape owners are not nodes and do not appear in the editor, but are accessible through code using the [code]shape_owner_*[/code] methods.
+		
+		[b]Damage System:[/b] CollisionObject3D includes a comprehensive damage system similar to Unreal Engine's damage framework. It supports multiple damage types, damage events, immunity, multipliers, and helper methods for common damage scenarios like radial damage and knockback.
+		
 		[b]Warning:[/b] With a non-uniform scale, this node will likely not behave as expected. It is advised to keep its scale the same on all axes and adjust its collision shape(s) instead.
 	</description>
 	<tutorials>
@@ -180,6 +183,132 @@
 				Sets the [Transform3D] of the given shape owner.
 			</description>
 		</method>
+		<!-- Damage System Methods -->
+		<method name="apply_damage_simple">
+			<return type="float" />
+			<param index="0" name="damage" type="float" />
+			<param index="1" name="damage_types" type="int" default="0" />
+			<param index="2" name="instigator" type="Object" default="null" />
+			<param index="3" name="damage_causer" type="Object" default="null" />
+			<description>
+				Applies damage to this collision object. Returns the actual damage dealt after immunity and multipliers are applied.
+				[param damage_types] is a bitmask of [enum DamageType] values. [param instigator] is the object that caused the damage, and [param damage_causer] is the specific object that inflicted it (e.g., a weapon).
+			</description>
+		</method>
+		<method name="can_receive_damage" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="damage_types" type="int" default="-1" />
+			<description>
+				Returns whether this object can receive damage of the specified types. If [param damage_types] is -1, checks if any damage can be received.
+			</description>
+		</method>
+		<method name="set_damage_immunity">
+			<return type="void" />
+			<param index="0" name="damage_types" type="int" />
+			<param index="1" name="immune" type="bool" />
+			<description>
+				Sets immunity status for the specified damage types. [param damage_types] is a bitmask of [enum DamageType] values.
+			</description>
+		</method>
+		<method name="has_damage_immunity" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="damage_types" type="int" />
+			<description>
+				Returns whether this object has immunity to the specified damage types.
+			</description>
+		</method>
+		<method name="get_damage_multiplier" qualifiers="const">
+			<return type="float" />
+			<param index="0" name="damage_types" type="int" />
+			<description>
+				Returns the damage multiplier for the specified damage types. Default is 1.0.
+			</description>
+		</method>
+		<method name="set_damage_multiplier">
+			<return type="void" />
+			<param index="0" name="damage_types" type="int" />
+			<param index="1" name="multiplier" type="float" />
+			<description>
+				Sets the damage multiplier for the specified damage types. Values below 1.0 reduce damage, values above 1.0 increase damage.
+			</description>
+		</method>
+		<method name="deal_damage_to">
+			<return type="float" />
+			<param index="0" name="target" type="CollisionObject3D" />
+			<param index="1" name="damage" type="float" />
+			<param index="2" name="damage_types" type="int" default="0" />
+			<description>
+				Deals damage to a target collision object. Returns the actual damage dealt.
+			</description>
+		</method>
+		<method name="deal_radial_damage">
+			<return type="float" />
+			<param index="0" name="center" type="Vector3" />
+			<param index="1" name="radius" type="float" />
+			<param index="2" name="damage" type="float" />
+			<param index="3" name="damage_types" type="int" default="0" />
+			<param index="4" name="falloff" type="bool" default="true" />
+			<param index="5" name="falloff_type" type="int" default="0" />
+			<param index="6" name="falloff_curve" type="float" default="1.0" />
+			<description>
+				Deals radial damage in a sphere around the specified center. Returns total damage dealt to all targets.
+				If [param falloff] is true, damage decreases with distance from center. [param falloff_type] determines the falloff curve type (see [enum RadialFalloffType]). [param falloff_curve] adjusts the intensity of the falloff curve.
+				
+				[b]Falloff Types:[/b]
+				- [constant FALLOFF_LINEAR]: Linear decrease (1.0 - distance/radius)
+				- [constant FALLOFF_QUADRATIC]: Quadratic decrease (1.0 - (distance/radius)²)
+				- [constant FALLOFF_EXPONENTIAL]: Exponential decrease (e^(-curve * distance/radius))
+				- [constant FALLOFF_INVERSE_SQUARE]: Inverse square law (1/(1 + curve * (distance/radius)²))
+				- [constant FALLOFF_STEP]: Step function with [param falloff_curve] steps
+				- [constant FALLOFF_CURVED]: Power curve ((1 - distance/radius)^curve)
+			</description>
+		</method>
+		<method name="apply_knockback">
+			<return type="float" />
+			<param index="0" name="direction" type="Vector3" />
+			<param index="1" name="strength" type="float" />
+			<description>
+				Applies knockback force in the specified direction. Returns the knockback strength applied.
+				Base implementation returns the strength value. Override in subclasses for actual physics.
+			</description>
+		</method>
+		<method name="create_damage_event">
+			<return type="Dictionary" />
+			<param index="0" name="damage" type="float" />
+			<param index="1" name="damage_types" type="int" default="0" />
+			<param index="2" name="instigator" type="Object" default="null" />
+			<param index="3" name="damage_causer" type="Object" default="null" />
+			<param index="4" name="hit_location" type="Vector3" default="Vector3(0, 0, 0)" />
+			<param index="5" name="hit_normal" type="Vector3" default="Vector3(0, 0, 0)" />
+			<description>
+				Creates a damage event dictionary with the specified parameters. Useful for creating complex damage events.
+			</description>
+		</method>
+		<!-- Damage System Virtual Methods -->
+		<method name="_handle_damage" qualifiers="virtual">
+			<return type="float" />
+			<param index="0" name="damage_event" type="Dictionary" />
+			<description>
+				Virtual method called when damage is being processed. Override to implement custom damage handling logic.
+				Return the processed damage amount, or modify the damage_event dictionary to change the damage.
+			</description>
+		</method>
+		<method name="_on_damage_received" qualifiers="virtual">
+			<return type="void" />
+			<param index="0" name="damage_event" type="Dictionary" />
+			<param index="1" name="actual_damage" type="float" />
+			<description>
+				Virtual method called when this object receives damage. Override to implement custom damage response logic.
+			</description>
+		</method>
+		<method name="_on_damage_dealt" qualifiers="virtual">
+			<return type="void" />
+			<param index="0" name="damage_event" type="Dictionary" />
+			<param index="1" name="actual_damage" type="float" />
+			<description>
+				Virtual method called when this object deals damage to another object. Override to implement custom damage dealing logic.
+			</description>
+		</method>
 	</methods>
 	<members>
 		<member name="collision_layer" type="int" setter="set_collision_layer" getter="get_collision_layer" default="1">
@@ -226,6 +355,35 @@
 				[b]Note:[/b] Due to the lack of continuous collision detection, this signal may not be emitted in the expected order if the mouse moves fast enough and the [CollisionObject3D]'s area is small. This signal may also not be emitted if another [CollisionObject3D] is overlapping the [CollisionObject3D] in question.
 			</description>
 		</signal>
+		<!-- Damage System Signals -->
+		<signal name="damage_received">
+			<param index="0" name="damage_event" type="Dictionary" />
+			<param index="1" name="actual_damage" type="float" />
+			<description>
+				Emitted when this object receives damage. [param damage_event] contains detailed damage information, [param actual_damage] is the damage after immunity and multipliers.
+			</description>
+		</signal>
+		<signal name="damage_dealt">
+			<param index="0" name="damage_event" type="Dictionary" />
+			<param index="1" name="actual_damage" type="float" />
+			<description>
+				Emitted when this object deals damage to another object. [param damage_event] contains detailed damage information, [param actual_damage] is the damage dealt.
+			</description>
+		</signal>
+		<signal name="damage_applied">
+			<param index="0" name="target" type="CollisionObject3D" />
+			<param index="1" name="damage_event" type="Dictionary" />
+			<param index="2" name="actual_damage" type="float" />
+			<description>
+				Emitted when damage is applied to a target. [param target] is the object that received damage, [param damage_event] contains detailed damage information, [param actual_damage] is the damage dealt.
+			</description>
+		</signal>
+		<signal name="recieve_damage">
+			<param index="0" name="damage" type="float" />
+			<description>
+				[b]Legacy signal[/b] for backward compatibility. Emitted when damage is received. Use [signal damage_received] for new code.
+			</description>
+		</signal>
 	</signals>
 	<constants>
 		<constant name="DISABLE_MODE_REMOVE" value="0" enum="DisableMode">
@@ -238,6 +396,58 @@
 		</constant>
 		<constant name="DISABLE_MODE_KEEP_ACTIVE" value="2" enum="DisableMode">
 			When [member Node.process_mode] is set to [constant Node.PROCESS_MODE_DISABLED], do not affect the physics simulation.
+		</constant>
+		<!-- Damage System Constants -->
+		<constant name="DAMAGE_TYPE_GENERIC" value="0" enum="DamageType">
+			Generic damage type, used as default.
+		</constant>
+		<constant name="DAMAGE_TYPE_PHYSICAL" value="1" enum="DamageType">
+			Physical damage from impacts, blunt force, etc.
+		</constant>
+		<constant name="DAMAGE_TYPE_FIRE" value="2" enum="DamageType">
+			Fire damage from flames, heat, etc.
+		</constant>
+		<constant name="DAMAGE_TYPE_ELECTRIC" value="4" enum="DamageType">
+			Electric damage from electricity, lightning, etc.
+		</constant>
+		<constant name="DAMAGE_TYPE_POISON" value="8" enum="DamageType">
+			Poison damage from toxins, damage over time, etc.
+		</constant>
+		<constant name="DAMAGE_TYPE_EXPLOSIVE" value="16" enum="DamageType">
+			Explosive damage from explosions, blasts, etc.
+		</constant>
+		<constant name="DAMAGE_TYPE_MELEE" value="32" enum="DamageType">
+			Melee damage from close combat attacks.
+		</constant>
+		<constant name="DAMAGE_TYPE_RANGED" value="64" enum="DamageType">
+			Ranged damage from projectiles, bullets, etc.
+		</constant>
+		<constant name="DAMAGE_TYPE_MAGIC" value="128" enum="DamageType">
+			Magical damage from spells, enchantments, etc.
+		</constant>
+		<constant name="DAMAGE_TYPE_RADIAL" value="256" enum="DamageType">
+			Radial damage from area of effect attacks.
+		</constant>
+		<constant name="DAMAGE_TYPE_ENVIRONMENTAL" value="512" enum="DamageType">
+			Environmental damage from hazards, traps, etc.
+		</constant>
+		<constant name="FALLOFF_LINEAR" value="0" enum="RadialFalloffType">
+			Linear falloff: damage decreases linearly with distance.
+		</constant>
+		<constant name="FALLOFF_QUADRATIC" value="1" enum="RadialFalloffType">
+			Quadratic falloff: damage decreases with the square of distance.
+		</constant>
+		<constant name="FALLOFF_EXPONENTIAL" value="2" enum="RadialFalloffType">
+			Exponential falloff: damage decreases exponentially with distance.
+		</constant>
+		<constant name="FALLOFF_INVERSE_SQUARE" value="3" enum="RadialFalloffType">
+			Inverse square falloff: follows physics-like inverse square law.
+		</constant>
+		<constant name="FALLOFF_STEP" value="4" enum="RadialFalloffType">
+			Step falloff: damage decreases in discrete steps.
+		</constant>
+		<constant name="FALLOFF_CURVED" value="5" enum="RadialFalloffType">
+			Curved falloff: customizable power curve falloff.
 		</constant>
 	</constants>
 </class>

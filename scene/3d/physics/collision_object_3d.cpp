@@ -494,13 +494,40 @@ void CollisionObject3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("shape_owner_clear_shapes", "owner_id"), &CollisionObject3D::shape_owner_clear_shapes);
 	ClassDB::bind_method(D_METHOD("shape_find_owner", "shape_index"), &CollisionObject3D::shape_find_owner);
 
+	// Damage system method bindings
+	// Note: apply_damage with DamageEvent parameter cannot be bound to GDScript
+	// Use the float overload instead for GDScript compatibility
+	ClassDB::bind_method(D_METHOD("apply_damage_simple", "damage", "damage_types", "instigator", "damage_causer"), 
+		(float (CollisionObject3D::*)(float, int, Object*, Object*))&CollisionObject3D::apply_damage, 
+		DEFVAL(DAMAGE_TYPE_GENERIC), DEFVAL(Variant()), DEFVAL(Variant()));
+	ClassDB::bind_method(D_METHOD("can_receive_damage", "damage_types"), &CollisionObject3D::can_receive_damage, DEFVAL(-1));
+	ClassDB::bind_method(D_METHOD("set_damage_immunity", "damage_types", "immune"), &CollisionObject3D::set_damage_immunity);
+	ClassDB::bind_method(D_METHOD("has_damage_immunity", "damage_types"), &CollisionObject3D::has_damage_immunity);
+	ClassDB::bind_method(D_METHOD("get_damage_multiplier", "damage_types"), &CollisionObject3D::get_damage_multiplier);
+	ClassDB::bind_method(D_METHOD("set_damage_multiplier", "damage_types", "multiplier"), &CollisionObject3D::set_damage_multiplier);
+
+	// Helper method bindings
+	ClassDB::bind_method(D_METHOD("deal_damage_to", "target", "damage", "damage_types"), &CollisionObject3D::deal_damage_to, DEFVAL(DAMAGE_TYPE_GENERIC));
+	ClassDB::bind_method(D_METHOD("deal_radial_damage", "center", "radius", "damage", "damage_types", "falloff", "falloff_type", "falloff_curve"), 
+		&CollisionObject3D::deal_radial_damage, DEFVAL(DAMAGE_TYPE_GENERIC), DEFVAL(true), DEFVAL(FALLOFF_LINEAR), DEFVAL(1.0f));
+	ClassDB::bind_method(D_METHOD("apply_knockback", "direction", "strength"), &CollisionObject3D::apply_knockback);
+	ClassDB::bind_method(D_METHOD("create_damage_event", "damage", "damage_types", "instigator", "damage_causer", "hit_location", "hit_normal"), 
+		&CollisionObject3D::create_damage_event, DEFVAL(DAMAGE_TYPE_GENERIC), DEFVAL(Variant()), DEFVAL(Variant()), DEFVAL(Vector3()), DEFVAL(Vector3()));
+
 	GDVIRTUAL_BIND(_input_event, "camera", "event", "event_position", "normal", "shape_idx");
 	GDVIRTUAL_BIND(_mouse_enter);
 	GDVIRTUAL_BIND(_mouse_exit);
+	GDVIRTUAL_BIND(_handle_damage, "damage_event");
+	GDVIRTUAL_BIND(_on_damage_received, "damage_event", "actual_damage");
+	GDVIRTUAL_BIND(_on_damage_dealt, "damage_event", "actual_damage");
 
 	ADD_SIGNAL(MethodInfo("input_event", PropertyInfo(Variant::OBJECT, "camera", PROPERTY_HINT_RESOURCE_TYPE, Node::get_class_static()), PropertyInfo(Variant::OBJECT, "event", PROPERTY_HINT_RESOURCE_TYPE, "InputEvent"), PropertyInfo(Variant::VECTOR3, "event_position"), PropertyInfo(Variant::VECTOR3, "normal"), PropertyInfo(Variant::INT, "shape_idx")));
 	ADD_SIGNAL(MethodInfo("mouse_entered"));
 	ADD_SIGNAL(MethodInfo("mouse_exited"));
+	ADD_SIGNAL(MethodInfo("recieve_damage", PropertyInfo(Variant::FLOAT, "damage")));
+	ADD_SIGNAL(MethodInfo("damage_received", PropertyInfo(Variant::DICTIONARY, "damage_event"), PropertyInfo(Variant::FLOAT, "actual_damage")));
+	ADD_SIGNAL(MethodInfo("damage_dealt", PropertyInfo(Variant::DICTIONARY, "damage_event"), PropertyInfo(Variant::FLOAT, "actual_damage")));
+	ADD_SIGNAL(MethodInfo("damage_applied", PropertyInfo(Variant::OBJECT, "target"), PropertyInfo(Variant::DICTIONARY, "damage_event"), PropertyInfo(Variant::FLOAT, "actual_damage")));
 
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "disable_mode", PROPERTY_HINT_ENUM, "Remove,Make Static,Keep Active"), "set_disable_mode", "get_disable_mode");
 
@@ -747,6 +774,314 @@ PackedStringArray CollisionObject3D::get_configuration_warnings() const {
 	}
 
 	return warnings;
+}
+
+// Damage system implementation
+
+Dictionary CollisionObject3D::_damage_event_to_dict(const DamageEvent &p_event) const {
+	Dictionary dict;
+	dict["damage_amount"] = p_event.damage_amount;
+	dict["damage_types"] = p_event.damage_types;
+	dict["instigator"] = ObjectDB::get_instance(p_event.instigator);
+	dict["damage_causer"] = ObjectDB::get_instance(p_event.damage_causer);
+	dict["hit_location"] = p_event.hit_location;
+	dict["hit_normal"] = p_event.hit_normal;
+	dict["shape_index"] = p_event.shape_index;
+	dict["knockback_strength"] = p_event.knockback_strength;
+	dict["knockback_direction"] = p_event.knockback_direction;
+	dict["metadata"] = p_event.metadata;
+	return dict;
+}
+
+CollisionObject3D::DamageEvent CollisionObject3D::_dict_to_damage_event(const Dictionary &p_dict) const {
+	DamageEvent event;
+	if (p_dict.has("damage_amount")) {
+		event.damage_amount = p_dict["damage_amount"];
+	}
+	if (p_dict.has("damage_types")) {
+		event.damage_types = p_dict["damage_types"];
+	}
+	if (p_dict.has("instigator")) {
+		Object *instigator = p_dict["instigator"];
+		if (instigator) {
+			event.instigator = instigator->get_instance_id();
+		}
+	}
+	if (p_dict.has("damage_causer")) {
+		Object *causer = p_dict["damage_causer"];
+		if (causer) {
+			event.damage_causer = causer->get_instance_id();
+		}
+	}
+	if (p_dict.has("hit_location")) {
+		event.hit_location = p_dict["hit_location"];
+	}
+	if (p_dict.has("hit_normal")) {
+		event.hit_normal = p_dict["hit_normal"];
+	}
+	if (p_dict.has("shape_index")) {
+		event.shape_index = p_dict["shape_index"];
+	}
+	if (p_dict.has("knockback_strength")) {
+		event.knockback_strength = p_dict["knockback_strength"];
+	}
+	if (p_dict.has("knockback_direction")) {
+		event.knockback_direction = p_dict["knockback_direction"];
+	}
+	if (p_dict.has("metadata")) {
+		event.metadata = p_dict["metadata"];
+	}
+	return event;
+}
+
+float CollisionObject3D::apply_damage(const DamageEvent &p_damage_event) {
+	if (p_damage_event.damage_amount <= 0.0f) {
+		return 0.0f;
+	}
+
+	// Check immunity
+	if (has_damage_immunity(p_damage_event.damage_types)) {
+		return 0.0f;
+	}
+
+	// Call virtual handler for custom damage processing
+	float processed_damage = p_damage_event.damage_amount;
+	Dictionary event_dict = _damage_event_to_dict(p_damage_event);
+	if (GDVIRTUAL_CALL(_handle_damage, event_dict)) {
+		// Virtual method returned a value, get it from the dictionary
+		if (event_dict.has("processed_damage")) {
+			processed_damage = event_dict["processed_damage"];
+		}
+	} else {
+		// Apply damage multipliers
+		float multiplier = get_damage_multiplier(p_damage_event.damage_types);
+		processed_damage *= multiplier;
+	}
+
+	// Ensure damage is not negative
+	processed_damage = MAX(processed_damage, 0.0f);
+
+	// Emit signals
+	emit_signal("damage_received", event_dict, processed_damage);
+	emit_signal("recieve_damage", processed_damage); // Keep old signal for compatibility
+
+	// Call virtual method
+	_on_damage_received(p_damage_event, processed_damage);
+
+	return processed_damage;
+}
+
+float CollisionObject3D::apply_damage(float p_damage, int p_damage_types, Object *p_instigator, Object *p_damage_causer) {
+	DamageEvent event(p_damage, p_damage_types);
+	if (p_instigator) {
+		event.instigator = p_instigator->get_instance_id();
+	}
+	if (p_damage_causer) {
+		event.damage_causer = p_damage_causer->get_instance_id();
+	}
+	return apply_damage(event);
+}
+
+bool CollisionObject3D::can_receive_damage(int p_damage_types) const {
+	if (p_damage_types == -1) {
+		return damage_immunity_flags == 0;
+	}
+	return (damage_immunity_flags & p_damage_types) == 0;
+}
+
+void CollisionObject3D::set_damage_immunity(int p_damage_types, bool p_immune) {
+	if (p_immune) {
+		damage_immunity_flags |= p_damage_types;
+	} else {
+		damage_immunity_flags &= ~p_damage_types;
+	}
+}
+
+bool CollisionObject3D::has_damage_immunity(int p_damage_types) const {
+	return (damage_immunity_flags & p_damage_types) != 0;
+}
+
+float CollisionObject3D::get_damage_multiplier(int p_damage_types) const {
+	float total_multiplier = 1.0f;
+	for (const KeyValue<int, float> &E : damage_multipliers) {
+		if (E.key & p_damage_types) {
+			total_multiplier *= E.value;
+		}
+	}
+	return total_multiplier;
+}
+
+void CollisionObject3D::set_damage_multiplier(int p_damage_types, float p_multiplier) {
+	damage_multipliers[p_damage_types] = p_multiplier;
+}
+
+float CollisionObject3D::_handle_damage(const DamageEvent &p_damage_event) {
+	// Default implementation just returns the base damage
+	return p_damage_event.damage_amount;
+}
+
+void CollisionObject3D::_on_damage_received(const DamageEvent &p_damage_event, float p_actual_damage) {
+	// Default implementation does nothing, override in subclasses
+}
+
+void CollisionObject3D::_on_damage_dealt(const DamageEvent &p_damage_event, float p_actual_damage) {
+	// Default implementation does nothing, override in subclasses
+}
+
+// Helper methods implementation
+
+float CollisionObject3D::deal_damage_to(CollisionObject3D *p_target, float p_damage, int p_damage_types) {
+	if (!p_target) {
+		return 0.0f;
+	}
+
+	Dictionary event_dict = create_damage_event(p_damage, p_damage_types, this, this);
+	DamageEvent event = _dict_to_damage_event(event_dict);
+	float actual_damage = p_target->apply_damage(event);
+
+	// Notify the dealer
+	_on_damage_dealt(event, actual_damage);
+	event_dict = _damage_event_to_dict(event);
+	emit_signal("damage_dealt", event_dict, actual_damage);
+	emit_signal("damage_applied", p_target, event_dict, actual_damage);
+
+	return actual_damage;
+}
+
+float CollisionObject3D::deal_radial_damage(const Vector3 &p_center, float p_radius, float p_damage, int p_damage_types, bool p_falloff, RadialFalloffType p_falloff_type, float p_falloff_curve) {
+	if (!is_inside_tree()) {
+		return 0.0f;
+	}
+
+	float total_damage_dealt = 0.0f;
+	Ref<World3D> world = get_world_3d();
+	ERR_FAIL_COND_V(world.is_null(), 0.0f);
+
+	// Query for physics objects in radius
+	PhysicsDirectSpaceState3D *space_state = PhysicsServer3D::get_singleton()->space_get_direct_state(world->get_space());
+	ERR_FAIL_NULL_V(space_state, 0.0f);
+
+	// Use shape parameters for sphere query
+	PhysicsDirectSpaceState3D::ShapeParameters params;
+	Ref<SphereShape3D> sphere_shape;
+	sphere_shape.instantiate();
+	sphere_shape->set_radius(p_radius);
+	
+	params.shape_rid = sphere_shape->get_rid();
+	params.transform = Transform3D(Basis(), p_center);
+	params.collision_mask = get_collision_mask();
+	params.exclude = { get_rid() };
+
+	// Perform intersection query
+	Vector<PhysicsDirectSpaceState3D::ShapeResult> results;
+	const int max_results = 32;
+	results.resize(max_results);
+	int result_count = space_state->intersect_shape(params, results.ptrw(), max_results);
+
+	for (int i = 0; i < result_count; i++) {
+		const PhysicsDirectSpaceState3D::ShapeResult &res = results[i];
+		Object *obj = ObjectDB::get_instance(res.collider_id);
+		CollisionObject3D *collision_obj = Object::cast_to<CollisionObject3D>(obj);
+		
+		if (collision_obj && collision_obj != this) {
+			float damage_multiplier = 1.0f;
+			
+			if (p_falloff) {
+				// Calculate distance-based falloff using the new falloff system
+				float distance = p_center.distance_to(collision_obj->get_global_position());
+				damage_multiplier = _calculate_radial_falloff(distance, p_radius, p_falloff_type, p_falloff_curve);
+			}
+			
+			float final_damage = p_damage * damage_multiplier;
+			if (final_damage > 0.0f) {
+				Dictionary event_dict = create_damage_event(final_damage, p_damage_types | DAMAGE_TYPE_RADIAL, this, this);
+				DamageEvent event = _dict_to_damage_event(event_dict);
+				event.shape_index = res.shape;
+				total_damage_dealt += collision_obj->apply_damage(event);
+			}
+		}
+	}
+
+	return total_damage_dealt;
+}
+
+float CollisionObject3D::apply_knockback(const Vector3 &p_direction, float p_strength) {
+	// This is a base implementation - subclasses should override to apply actual physics forces
+	// For now, just return the strength as a measure of "knockback applied"
+	return p_strength;
+}
+
+Dictionary CollisionObject3D::create_damage_event(float p_damage, int p_damage_types, Object *p_instigator, Object *p_damage_causer, const Vector3 &p_hit_location, const Vector3 &p_hit_normal) {
+	DamageEvent event(p_damage, p_damage_types);
+	
+	if (p_instigator) {
+		event.instigator = p_instigator->get_instance_id();
+	} else {
+		event.instigator = get_instance_id();
+	}
+	
+	if (p_damage_causer) {
+		event.damage_causer = p_damage_causer->get_instance_id();
+	} else {
+		event.damage_causer = get_instance_id();
+	}
+	
+	event.hit_location = p_hit_location;
+	event.hit_normal = p_hit_normal;
+	
+	return _damage_event_to_dict(event);
+}
+
+float CollisionObject3D::_calculate_radial_falloff(float p_distance, float p_radius, RadialFalloffType p_falloff_type, float p_falloff_curve) const {
+	if (p_distance >= p_radius) {
+		return 0.0f;
+	}
+	
+	if (p_distance <= 0.0f) {
+		return 1.0f;
+	}
+	
+	float normalized_distance = p_distance / p_radius;
+	float falloff = 1.0f;
+	
+	switch (p_falloff_type) {
+		case FALLOFF_LINEAR:
+			falloff = 1.0f - normalized_distance;
+			break;
+			
+		case FALLOFF_QUADRATIC:
+			falloff = 1.0f - (normalized_distance * normalized_distance);
+			break;
+			
+		case FALLOFF_EXPONENTIAL:
+			falloff = Math::exp(-p_falloff_curve * normalized_distance);
+			break;
+			
+		case FALLOFF_INVERSE_SQUARE:
+			if (p_distance > 0.1f) { // Avoid division by very small numbers
+				falloff = 1.0f / (1.0f + p_falloff_curve * normalized_distance * normalized_distance);
+			}
+			break;
+			
+		case FALLOFF_STEP: {
+			int steps = Math::round(p_falloff_curve);
+			if (steps <= 0) steps = 1;
+			float step_size = 1.0f / steps;
+			falloff = 1.0f - (Math::floor(normalized_distance / step_size) * step_size);
+			break;
+		}
+		
+		case FALLOFF_CURVED:
+			// Use a power curve: (1 - distance)^curve
+			falloff = Math::pow(1.0f - normalized_distance, MAX(0.1f, p_falloff_curve));
+			break;
+			
+		default:
+			falloff = 1.0f - normalized_distance;
+			break;
+	}
+	
+	return MAX(0.0f, MIN(1.0f, falloff));
 }
 
 CollisionObject3D::CollisionObject3D() {
