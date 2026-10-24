@@ -31,6 +31,14 @@
 				Returns the end bone name of the bone chain.
 			</description>
 		</method>
+		<method name="get_pre_slerp_rotation" qualifiers="const">
+			<return type="Quaternion" />
+			<param index="0" name="bone_index" type="int" />
+			<description>
+				Returns the bone rotation read from the skeleton immediately before the angular velocity clamp of the most recently processed frame.
+				Returns an identity [code]Quaternion[/code] if the bone is not processed by this modifier (not in the joint list, or excluded) or if no frame has been processed yet.
+			</description>
+		</method>
 		<method name="get_root_bone" qualifiers="const">
 			<return type="int" />
 			<param index="0" name="index" type="int" />
