@@ -36,7 +36,7 @@
 			<param index="0" name="bone_index" type="int" />
 			<description>
 				Returns the bone rotation read from the skeleton immediately before the angular velocity clamp of the most recently processed frame.
-				Returns an identity [code]Quaternion[/code] if the bone is not processed by this modifier (not in the joint list, or excluded) or if no frame has been processed yet.
+				Returns an identity [code skip-lint]Quaternion[/code] if the bone is not processed by this modifier (not in the joint list, or excluded) or if no frame has been processed yet.
 			</description>
 		</method>
 		<method name="get_root_bone" qualifiers="const">
@@ -51,6 +51,15 @@
 			<param index="0" name="index" type="int" />
 			<description>
 				Returns the root bone name of the bone chain.
+			</description>
+		</method>
+		<method name="get_rotation_diff" qualifiers="const">
+			<return type="float" />
+			<param index="0" name="bone_index" type="int" />
+			<description>
+				Returns the angle in radians between the previously clamped rotation and the pre-slerp target rotation of the most recently processed frame.
+				This is the intended rotation delta before the angular velocity clamp; the rotation actually applied to the bone is at most [member max_angular_velocity] multiplied by the frame delta.
+				Returns [code]0.0[/code] if the bone is not processed by this modifier (not in the joint list, or excluded) or if no frame has been processed yet.
 			</description>
 		</method>
 		<method name="reset">

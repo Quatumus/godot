@@ -271,6 +271,7 @@ void LimitAngularVelocityModifier3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("reset"), &LimitAngularVelocityModifier3D::reset);
 
 	ClassDB::bind_method(D_METHOD("get_pre_slerp_rotation", "bone_index"), &LimitAngularVelocityModifier3D::get_pre_slerp_rotation);
+	ClassDB::bind_method(D_METHOD("get_rotation_diff", "bone_index"), &LimitAngularVelocityModifier3D::get_rotation_diff);
 
 	ClassDB::bind_method(D_METHOD("_get_joint_count"), &LimitAngularVelocityModifier3D::_get_joint_count);
 
@@ -425,6 +426,7 @@ void LimitAngularVelocityModifier3D::_process_modification(double p_delta) {
 		Quaternion dest = skeleton->get_bone_pose_rotation(bn);
 		bones[i].rotation_pre_slerp = dest;
 		double diff = bones[i].rotation.angle_to(dest);
+		bones[i].rotation_diff = diff;
 		if (!Math::is_zero_approx(diff)) {
 			bones[i].rotation = bones[i].rotation.slerp(dest, MIN(1.0, limit_in_frame / diff));
 		}
@@ -443,6 +445,15 @@ Quaternion LimitAngularVelocityModifier3D::get_pre_slerp_rotation(int p_bone_ind
 		}
 	}
 	return Quaternion();
+}
+
+double LimitAngularVelocityModifier3D::get_rotation_diff(int p_bone_index) const {
+	for (const BoneRot &E : bones) {
+		if (E.index == p_bone_index) {
+			return E.rotation_diff;
+		}
+	}
+	return 0.0;
 }
 
 LimitAngularVelocityModifier3D::~LimitAngularVelocityModifier3D() {

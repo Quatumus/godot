@@ -50,6 +50,7 @@ public:
 		int index = -1;
 		Quaternion rotation;
 		Quaternion rotation_pre_slerp;
+		double rotation_diff = 0.0;
 	};
 
 private:
@@ -114,6 +115,7 @@ public:
 	void reset();
 
 	Quaternion get_pre_slerp_rotation(int p_bone_index) const;
+	double get_rotation_diff(int p_bone_index) const;
 
 	~LimitAngularVelocityModifier3D();
 };
